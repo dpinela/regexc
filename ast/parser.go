@@ -28,8 +28,10 @@ type CharRange struct {
 	Min, Max rune
 }
 
-// Regexp := RegexpElement+
-// RegexpElement := Literal | CharClass | Repetition | Alternation | Group
+// Regexp := Sequence | Alternation
+// Sequence := RegexpElement+
+// RegexpElement := Literal | CharClass | Repetition | Group
+// Alternation := Sequence ('|' Sequence)+
 // Literal := LiteralChar+
 // CharClass := '[' CharRange+ ']'
 // CharRange := EscAny | ([^-\]] | EscAny) '-' ([^-\]] | EscAny)
@@ -75,13 +77,19 @@ func (p *parser) popResult() interface{} {
 	return res
 }
 
+func dupEfaceSlice(xs []interface{}) []interface{} {
+	xs2 := make([]interface{}, len(xs))
+	copy(xs2, xs)
+	return xs2
+}
+
 func (p *parser) Choose(fs []func(func()), then func()) {
 	if len(fs) == 0 {
 		p.Backtrack()
 		return
 	}
 	savedPos := p.pos
-	savedStack := p.resultStack
+	savedStack := dupEfaceSlice(p.resultStack)
 	p.stack = append(p.stack, func() {
 		p.pos = savedPos
 		p.resultStack = savedStack
@@ -112,18 +120,25 @@ func (p *parser) matchByte(b byte, then func()) {
 func nop(then func()) { then() }
 
 func (p *parser) parseRegexp(then func()) {
-	//fmt.Println("parseRegexp @ ", p.pos)
-	p.parseRegexpWithElements(nil, then)
+	p.Choose([]func(func()){p.parseAlternation, p.parseSequence}, then)
 }
 
-func (p *parser) parseRegexpWithElements(elements Sequence, then func()) {
-	p.parseRegexpElement(func() {
-		p.Choose([]func(func()){func(then func()) {
-			p.parseRegexpWithElements(append(elements, p.popResult()), then)
-		}, func(then func()) {
-			p.resultStack = append(p.resultStack, append(elements, p.popResult()))
-			then()
-		}}, then)
+func (p *parser) parseSequence(then func()) {
+	//fmt.Println("parseRegexp @ ", p.pos)
+	p.parseOneOrMoreWithElements(p.parseRegexpElement, nil,
+		func(elements []Node) Node { return Sequence(elements) }, then)
+}
+
+func (p *parser) parseOneOrMoreWithElements(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
+	parseFunc(func() {
+		p.Choose([]func(func()){
+			func(then func()) {
+				p.parseOneOrMoreWithElements(parseFunc, append(elements, p.popResult()), typeConverter, then)
+			}, func(then func()) {
+				p.resultStack = append(p.resultStack, typeConverter(append(elements, p.popResult())))
+				then()
+			},
+		}, then)
 	})
 }
 
@@ -155,6 +170,13 @@ func (p *parser) parseGroup(then func()) {
 	})
 }
 
-func (p *parser) parseCharClass(func())   {}
-func (p *parser) parseRepetition(func())  {}
-func (p *parser) parseAlternation(func()) {}
+func (p *parser) parseCharClass(func())  {}
+func (p *parser) parseRepetition(func()) {}
+
+func (p *parser) parseAlternation(then func()) {
+	p.parseSequence(func() {
+		p.parseOneOrMoreWithElements(func(then func()) {
+			p.matchByte('|', func() { p.parseSequence(then) })
+		}, []Node{p.popResult()}, func(ns []Node) Node { return Alternation(ns) }, then)
+	})
+}
