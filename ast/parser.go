@@ -135,7 +135,12 @@ func (p *parser) parseRegexp(then func()) {
 func (p *parser) parseSequence(then func()) {
 	//fmt.Println("parseRegexp @ ", p.pos)
 	p.parseOneOrMoreWithElements(p.parseRegexpElement, nil,
-		func(elements []Node) Node { return Sequence(elements) }, then)
+		func(elements []Node) Node {
+			if len(elements) == 1 {
+				return elements[0]
+			}
+			return Sequence(elements)
+		}, then)
 }
 
 func (p *parser) parseOneOrMoreWithElements(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
@@ -172,7 +177,7 @@ func (p *parser) parseGroup(then func()) {
 		p.parseRegexp(func() {
 			p.matchByte(')', func() {
 				n := len(p.resultStack) - 1
-				p.resultStack[n] = &Group{Content: p.resultStack[n]}
+				p.resultStack[n] = Group{Content: p.resultStack[n]}
 				then()
 			})
 		})
