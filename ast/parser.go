@@ -41,9 +41,16 @@ type CharRange struct {
 // LiteralChar := EscAny | [^?*.\[\]()|]
 // EscAny := '\\' Any
 func Parse(re string) Node {
+	defer func() {
+		if e := recover(); e != nil {
+			if _, ok := e.(abortParse); !ok {
+				panic(e)
+			}
+		}
+	}()
 	p := parser{text: re}
 	p.parseRegexp(func() {})
-	if len(p.resultStack) == 0 {
+	if p.pos < len(p.text) || len(p.resultStack) == 0 {
 		return nil
 	}
 	return p.resultStack[0]
@@ -56,9 +63,11 @@ type parser struct {
 	text        string
 }
 
+type abortParse struct{}
+
 func (p *parser) Backtrack() {
 	if len(p.stack) == 0 {
-		panic("nowhere to backtrack to")
+		panic(abortParse{})
 	}
 	p.pop()()
 }
