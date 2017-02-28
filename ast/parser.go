@@ -1,14 +1,8 @@
-//+build ignore
-
 package ast
 
-import (
-	"fmt"
-	"regexp"
-	"strings"
-)
-
-type Node interface{}
+type Node interface {
+	simplify() Node
+}
 
 type Literal string
 
@@ -34,186 +28,174 @@ type CharRange struct {
 	Min, Max rune
 }
 
-// Regexp := Sequence | Alternation
-// Sequence := RegexpElement*
-// RegexpElement := Literal | CharClass | Repetition | Group
-// Alternation := Sequence ('|' Sequence)+
-// Literal := LiteralChar+
-// CharClass := '[' CharRange+ ']'
-// CharRange := EscAny | ([^-\]] | EscAny) '-' ([^-\]] | EscAny)
-// Repetition := (LiteralChar | CharClass | Group) ([*+] | '{' \d* ',' \d* '}')
-// Group := '(' Regexp ')'
-
-// LiteralChar := EscAny | [^?*.\[\]()|]
-// EscAny := '\\' Any
-func Parse(re string) Node {
-	fmt.Println("Parsing", re)
-	defer func() {
-		if e := recover(); e != nil {
-			if _, ok := e.(abortParse); !ok {
-				panic(e)
-			}
-		}
-	}()
-	p := parser{text: re}
-	p.parseRegexp(func() {})
-	if p.pos < len(p.text) || len(p.resultStack) == 0 {
-		return nil
+func Parse(re string) (Node, error) {
+	p := parser{stack: []Node{Sequence(nil)}}
+	tree, err := p.parseRegexp(re)
+	if err != nil {
+		return nil, err
 	}
-	return p.resultStack[0]
+	return tree.simplify(), nil
 }
 
 type parser struct {
-	stack       []func()
-	resultStack []interface{}
-	pos         int
-	text        string
+	stack []Node
 }
 
-type abortParse struct{}
-
-func (p *parser) trace(s string) {
-	fmt.Println(strings.Repeat(" ", len(p.stack))+s, "@", p.pos)
+type parseError struct {
+	Message  string
+	Location int
+	Source   string
 }
 
-func (p *parser) Backtrack() {
-	if len(p.stack) == 0 {
-		panic(abortParse{})
-	}
-	p.trace("Backtrack")
-	p.pop()()
-}
+type BadCloseError parseError
 
-func (p *parser) pop() func() {
-	n := len(p.stack) - 1
-	next := p.stack[n]
-	p.stack = p.stack[:n]
-	return next
-}
+func (err *BadCloseError) Error() string { return "closing parenthesis outside of group" }
 
-func (p *parser) popResult() interface{} {
-	n := len(p.resultStack) - 1
-	res := p.resultStack[n]
-	p.resultStack = p.resultStack[:n]
-	return res
-}
+type UnterminatedGroupError parseError
 
-func dupEfaceSlice(xs []interface{}) []interface{} {
-	xs2 := make([]interface{}, len(xs))
-	copy(xs2, xs)
-	return xs2
-}
+func (err *UnterminatedGroupError) Error() string { return "unterminated group" }
 
-func (p *parser) Choose(fs []func(func()), then func()) {
-	if len(fs) == 0 {
-		p.Backtrack()
-		return
-	}
-	savedPos := p.pos
-	savedStack := dupEfaceSlice(p.resultStack)
-	p.stack = append(p.stack, func() {
-		p.pos = savedPos
-		p.resultStack = savedStack
-		p.Choose(fs[1:], then)
-	})
-	fs[0](then)
-}
+type VoidRepetitionError parseError
 
-func (p *parser) matchPattern(re *regexp.Regexp, then func([]string)) {
-	m := re.FindStringSubmatch(p.text[p.pos:])
-	if len(m) == 0 {
-		p.Backtrack()
-		return
-	}
-	p.pos += len(m[0])
-	then(m)
-}
+func (err *VoidRepetitionError) Error() string { return "repetition of nothing" }
 
-func (p *parser) matchByte(b byte, then func()) {
-	if p.pos >= len(p.text) || p.text[p.pos] != b {
-		p.Backtrack()
-		return
-	}
-	p.pos++
-	then()
-}
+type RepetitionRepetitionError parseError
 
-func nop(then func()) { then() }
+func (err *RepetitionRepetitionError) Error() string { return "repetition of repetition" }
 
-func (p *parser) parseRegexp(then func()) {
-	p.trace("parseRegexp")
-	p.Choose([]func(func()){p.parseAlternation, p.parseSequence}, then)
-}
-
-func (p *parser) parseSequence(then func()) {
-	p.trace("parseSequence")
-	p.parseOneOrMore(p.parseRegexpElement, nil,
-		func(elements []Node) Node {
-			if len(elements) == 1 {
-				return elements[0]
+func (p *parser) parseRegexp(re string) (Node, error) {
+	//fmt.Println("Parsing", re)
+	groupLevel := 0
+	for i, c := range re {
+		switch c {
+		case '*', '+':
+		default:
+			p.extendSequence()
+		}
+		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
+		switch c {
+		case '(':
+			// Add a group token to the stack so that combining operations don't mix
+			// the elements of the group with elements of the group's parent
+			// (like extendSequence)
+			p.stack = append(p.stack, Group{}, Sequence{})
+			groupLevel++
+		case ')':
+			p.extendAlternation(true)
+			if !p.finishGroup() {
+				return nil, &BadCloseError{Location: i, Source: re}
 			}
-			return Sequence(elements)
-		}, then)
+			groupLevel--
+		case '|':
+			p.startOrExtendAlternation()
+		case '*':
+			if err := p.addRepetition(0, -1, i, re); err != nil {
+				return nil, err
+			}
+		case '+':
+			if err := p.addRepetition(1, -1, i, re); err != nil {
+				return nil, err
+			}
+		default:
+			p.stack = append(p.stack, Literal(c))
+		}
+	}
+	p.extendSequence()
+	p.extendAlternation(true)
+	//fmt.Printf("finish, stack: %#v\n", p.stack)
+	if groupLevel > 0 {
+		return nil, &UnterminatedGroupError{Location: len(re), Source: re}
+	}
+	return p.pop(), nil
 }
 
-func (p *parser) parseOneOrMore(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
-	parseFunc(func() {
-		p.Choose([]func(func()){
-			func(then func()) {
-				p.parseOneOrMore(parseFunc, append(elements, p.popResult()), typeConverter, then)
-			}, func(then func()) {
-				p.resultStack = append(p.resultStack, typeConverter(append(elements, p.popResult())))
-				then()
-			},
-		}, then)
-	})
+func (p *parser) extendSequence() {
+	if len(p.stack) < 2 {
+		return
+	}
+	bit := p.pop()
+	switch target := p.pop().(type) {
+	case Sequence:
+		p.push(append(target, bit))
+	default:
+		p.push(target)
+		p.push(bit)
+	}
 }
 
-func (p *parser) parseZeroOrMore(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
-	p.Choose([]func(func()){
-		func(then func()) { p.parseOneOrMore(parseFunc, elements, typeConverter, then) },
-		func(then func()) {
-			p.resultStack = append(p.resultStack, typeConverter(nil))
-		},
-	}, then)
+// on seeing |
+// pop
+func (p *parser) startOrExtendAlternation() {
+	switch len(p.stack) {
+	case 0:
+	case 1:
+		p.push(Alternation{p.pop()})
+		p.push(Sequence{})
+	default:
+		p.extendAlternation(false)
+	}
 }
 
-func (p *parser) parseRegexpElement(then func()) {
-	p.trace("parseRegexpElement")
-	p.Choose([]func(func()){p.parseLiteral, p.parseGroup}, then)
+func (p *parser) extendAlternation(finish bool) {
+	if len(p.stack) >= 2 {
+		bit := p.pop()
+		switch target := p.pop().(type) {
+		case Alternation:
+			p.push(append(target, bit))
+			if !finish {
+				p.push(Sequence{})
+			}
+		case Group:
+			p.push(target)
+			if finish {
+				p.push(bit)
+			} else {
+				p.push(Alternation{bit})
+				p.push(Sequence{})
+			}
+		default:
+			p.push(target)
+			p.push(bit)
+		}
+	}
 }
 
-var literalRE = regexp.MustCompile(`^(\.|[^?*.\[\]()|])+`)
-
-func (p *parser) parseLiteral(then func()) {
-	p.trace("parseLiteral")
-	p.matchPattern(literalRE, func(match []string) {
-		p.resultStack = append(p.resultStack, Literal(match[0]))
-		then()
-	})
+func (p *parser) addRepetition(lowerLimit, upperLimit, pos int, re string) error {
+	if len(p.stack) == 0 {
+		return &VoidRepetitionError{Location: pos, Source: re}
+	}
+	switch target := p.pop().(type) {
+	case Sequence: // can happen when the repeat operator appears at the start of a sequence
+		return &VoidRepetitionError{Location: pos, Source: re}
+	case Alternation:
+		panic("BUG: addRepetition called with an Alternation at top of stack")
+	case Repetition:
+		return &RepetitionRepetitionError{Location: pos, Source: re}
+	default:
+		p.push(Repetition{Content: target, LowerLimit: lowerLimit, UpperLimit: upperLimit})
+		return nil
+	}
 }
 
-func (p *parser) parseGroup(then func()) {
-	p.trace("parseGroup")
-	p.matchByte('(', func() {
-		p.parseRegexp(func() {
-			p.matchByte(')', func() {
-				n := len(p.resultStack) - 1
-				p.resultStack[n] = Group{Content: p.resultStack[n]}
-				then()
-			})
-		})
-	})
+func (p *parser) finishGroup() bool {
+	if len(p.stack) < 2 {
+		return false
+	}
+	content := p.pop()
+	if _, isGroup := p.pop().(Group); isGroup {
+		p.push(Group{content})
+	} else {
+		return false
+	}
+	return true
 }
 
-func (p *parser) parseCharClass(func())  {}
-func (p *parser) parseRepetition(func()) {}
+func (p *parser) push(item Node) {
+	p.stack = append(p.stack, item)
+}
 
-func (p *parser) parseAlternation(then func()) {
-	fmt.Println("parseAlternation @", p.pos)
-	p.parseSequence(func() {
-		p.parseOneOrMore(func(then func()) {
-			p.matchByte('|', func() { p.parseSequence(then) })
-		}, []Node{p.popResult()}, func(ns []Node) Node { return Alternation(ns) }, then)
-	})
+func (p *parser) pop() Node {
+	item := p.stack[len(p.stack)-1]
+	p.stack = p.stack[:len(p.stack)-1]
+	return item
 }
