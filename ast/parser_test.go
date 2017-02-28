@@ -24,8 +24,8 @@ var testCases = []testCase{
 	},
 	{
 		Name:  "Alternation",
-		Regex: "teapot|flask",
-		Want:  Alternation{Literal("teapot"), Literal("flask")},
+		Regex: "teapot|flask|glass",
+		Want:  Alternation{Literal("teapot"), Literal("flask"), Literal("glass")},
 	},
 	{
 		Name:  "Empty alternation",
@@ -56,11 +56,40 @@ var testCases = []testCase{
 			Literal("ss"),
 		},
 	},
+	{
+		Name:  "Repetition (*)",
+		Regex: "yes*",
+		Want:  Sequence{Literal("ye"), Repetition{Content: Literal("s"), UpperLimit: -1}},
+	},
+	{
+		Name:  "Repetition (+)",
+		Regex: "yes+",
+		Want:  Sequence{Literal("ye"), Repetition{Content: Literal("s"), LowerLimit: 1, UpperLimit: -1}},
+	},
+	{
+		Name:  "Repetition (counted, lower limit only)",
+		Regex: "lo{2,}ng",
+		Want:  Sequence{Literal("l"), Repetition{Content: Literal("o"), LowerLimit: 2, UpperLimit: -1}},
+	},
+	{
+		Name:  "Repetition (counted, upper limit only)",
+		Regex: "A{,3}",
+		Want:  Repetition{Content: Literal("A"), UpperLimit: 3},
+	},
+	{
+		Name:  "Repetition (counted, both limits)",
+		Regex: "A{3,33}",
+		Want:  Repetition{Content: Literal("A"), LowerLimit: 3, UpperLimit: 33},
+	},
 }
 
 func TestParser(t *testing.T) {
 	for _, re := range testCases {
-		if result, err := Parse(re.Regex); err != nil || !reflect.DeepEqual(result, re.Want) {
+		result, err := Parse(re.Regex)
+		if err != nil {
+			t.Errorf("%s: got %v, want %#v", re.Name, err, re.Want)
+		}
+		if !reflect.DeepEqual(result, re.Want) {
 			t.Errorf("%s: got %#v, want %#v", re.Name, result, re.Want)
 		}
 	}

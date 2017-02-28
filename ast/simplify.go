@@ -11,6 +11,10 @@ func (s Sequence) simplify() Node {
 	return Sequence(simplifySubtree([]Node(joinedS)))
 }
 
+func (r Repetition) simplify() Node {
+	return Repetition{Content: r.Content.simplify(), LowerLimit: r.LowerLimit, UpperLimit: r.UpperLimit}
+}
+
 func consolidateLiteralRuns(ns []Node) []Node {
 	joinedLit := Literal("")
 	var newNs []Node
