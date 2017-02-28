@@ -1,8 +1,8 @@
 package ast
 
-import "fmt"
-
-type Node interface{}
+type Node interface {
+	simplify() Node
+}
 
 type Literal string
 
@@ -31,7 +31,7 @@ type CharRange struct {
 func Parse(re string) Node {
 	p := parser{stack: []Node{Sequence(nil)}}
 	tree, _ := p.parseRegexp(re)
-	return tree
+	return tree.simplify()
 }
 
 type parser struct {
@@ -39,9 +39,9 @@ type parser struct {
 }
 
 func (p *parser) parseRegexp(re string) (Node, error) {
-	fmt.Println("Parsing", re)
+	//fmt.Println("Parsing", re)
 	for _, c := range re {
-		fmt.Printf("char: %c stack: %#v\n", c, p.stack)
+		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
 		p.extendSequence()
 		switch c {
 		case '|':
