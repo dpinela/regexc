@@ -30,10 +30,13 @@ type CharRange struct {
 	Min, Max rune
 }
 
-func Parse(re string) Node {
+func Parse(re string) (Node, error) {
 	p := parser{stack: []Node{Sequence(nil)}}
-	tree, _ := p.parseRegexp(re)
-	return tree.simplify()
+	tree, err := p.parseRegexp(re)
+	if err != nil {
+		return nil, err
+	}
+	return tree.simplify(), nil
 }
 
 type parser struct {
@@ -129,8 +132,12 @@ func (p *parser) extendAlternation(finish bool) {
 			}
 		case Group:
 			p.push(target)
-			p.push(Alternation{bit})
-			p.push(Sequence{})
+			if finish {
+				p.push(bit)
+			} else {
+				p.push(Alternation{bit})
+				p.push(Sequence{})
+			}
 		default:
 			p.push(target)
 			p.push(bit)
@@ -143,12 +150,10 @@ func (p *parser) finishGroup() bool {
 		return false
 	}
 	content := p.pop()
-	switch group := p.pop().(type) {
-	case Group:
+	if _, isGroup := p.pop().(Group); isGroup {
 		p.push(Group{content})
-	default:
-		p.push(group)
-		p.push(content)
+	} else {
+		return false
 	}
 	return true
 }
