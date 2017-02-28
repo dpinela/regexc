@@ -1,5 +1,7 @@
 package ast
 
+import "fmt"
+
 type Node interface {
 	simplify() Node
 }
@@ -38,12 +40,42 @@ type parser struct {
 	stack []Node
 }
 
+type ParseError struct {
+	Message  string
+	Location int
+	Source   string
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (err *ParseError) Error() string {
+	return fmt.Sprintf("%s at character %d: %q...", err.Message, err.Location, err.Source[err.Location:min(err.Location+10, len(err.Source))])
+}
+
 func (p *parser) parseRegexp(re string) (Node, error) {
 	//fmt.Println("Parsing", re)
-	for _, c := range re {
-		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
+	groupLevel := 0
+	for i, c := range re {
 		p.extendSequence()
+		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
 		switch c {
+		case '(':
+			// Add a group token to the stack so that combining operations don't mix
+			// the elements of the group with elements of the group's parent
+			// (like extendSequence)
+			p.stack = append(p.stack, Group{}, Sequence{})
+			groupLevel++
+		case ')':
+			p.extendAlternation(true)
+			if !p.finishGroup() {
+				return nil, &ParseError{Message: "closing parenthesis outside of group", Location: i, Source: re}
+			}
+			groupLevel--
 		case '|':
 			p.startOrExtendAlternation()
 		default:
@@ -52,6 +84,10 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	}
 	p.extendSequence()
 	p.extendAlternation(true)
+	//fmt.Printf("finish, stack: %#v\n", p.stack)
+	if groupLevel > 0 {
+		return nil, &ParseError{Message: "unterminated group", Location: len(re), Source: re}
+	}
 	return p.pop(), nil
 }
 
@@ -91,11 +127,30 @@ func (p *parser) extendAlternation(finish bool) {
 			if !finish {
 				p.push(Sequence{})
 			}
+		case Group:
+			p.push(target)
+			p.push(Alternation{bit})
+			p.push(Sequence{})
 		default:
 			p.push(target)
 			p.push(bit)
 		}
 	}
+}
+
+func (p *parser) finishGroup() bool {
+	if len(p.stack) < 2 {
+		return false
+	}
+	content := p.pop()
+	switch group := p.pop().(type) {
+	case Group:
+		p.push(Group{content})
+	default:
+		p.push(group)
+		p.push(content)
+	}
+	return true
 }
 
 func (p *parser) push(item Node) {
