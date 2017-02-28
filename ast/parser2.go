@@ -64,7 +64,11 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	//fmt.Println("Parsing", re)
 	groupLevel := 0
 	for i, c := range re {
-		p.extendSequence()
+		switch c {
+		case '*', '+':
+		default:
+			p.extendSequence()
+		}
 		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
 		switch c {
 		case '(':
@@ -81,6 +85,14 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			groupLevel--
 		case '|':
 			p.startOrExtendAlternation()
+		case '*':
+			if !p.addRepetition(0, -1) {
+				return nil, &ParseError{Message: "illegal * repetition", Location: i, Source: re}
+			}
+		case '+':
+			if !p.addRepetition(1, -1) {
+				return nil, &ParseError{Message: "illegal + repetition", Location: i, Source: re}
+			}
 		default:
 			p.stack = append(p.stack, Literal(c))
 		}
@@ -142,6 +154,23 @@ func (p *parser) extendAlternation(finish bool) {
 			p.push(target)
 			p.push(bit)
 		}
+	}
+}
+
+func (p *parser) addRepetition(lowerLimit, upperLimit int) bool {
+	if len(p.stack) == 0 {
+		return false
+	}
+	switch target := p.pop().(type) {
+	case Sequence: // can happen when the repeat operator appears at the start of a sequence
+		return false
+	case Alternation:
+		panic("BUG: addRepetition called with an Alternation at top of stack")
+	case Repetition:
+		return false
+	default:
+		p.push(Repetition{Content: target, LowerLimit: lowerLimit, UpperLimit: upperLimit})
+		return true
 	}
 }
 
