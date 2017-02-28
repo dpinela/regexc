@@ -8,7 +8,7 @@ import (
 type testCase struct {
 	Name  string
 	Regex string
-	Want  Node
+	Want  interface{}
 }
 
 var testCases = []testCase{
@@ -69,7 +69,7 @@ var testCases = []testCase{
 	{
 		Name:  "Repetition (counted, lower limit only)",
 		Regex: "lo{2,}ng",
-		Want:  Sequence{Literal("l"), Repetition{Content: Literal("o"), LowerLimit: 2, UpperLimit: -1}},
+		Want:  Sequence{Literal("l"), Repetition{Content: Literal("o"), LowerLimit: 2, UpperLimit: -1}, Literal("ng")},
 	},
 	{
 		Name:  "Repetition (counted, upper limit only)",
@@ -81,15 +81,51 @@ var testCases = []testCase{
 		Regex: "A{3,33}",
 		Want:  Repetition{Content: Literal("A"), LowerLimit: 3, UpperLimit: 33},
 	},
+	{
+		Name:  "Empty group",
+		Regex: "(())",
+		Want:  Group{Group{Sequence{}}},
+	},
+	{
+		Name:  "Unterminated group",
+		Regex: "(endless",
+		Want:  &UnterminatedGroupError{Location: 8, Source: "(endless"},
+	},
+	{
+		Name:  "Extra closing parenthesis",
+		Regex: "(green) )tea",
+		Want:  &BadCloseError{Location: 8, Source: "(green) )tea"},
+	},
+	{
+		Name:  "Repetition of nothing",
+		Regex: "*",
+		Want:  &VoidRepetitionError{Location: 0, Source: "*"},
+	},
+	{
+		Name:  "Repetition of nothing 2",
+		Regex: "(+)",
+		Want:  &VoidRepetitionError{Location: 1, Source: "(+)"},
+	},
+	{
+		Name:  "Repetition of repetition",
+		Regex: "bo++m",
+		Want:  &RepetitionRepetitionError{Location: 3, Source: "bo++m"},
+	},
+}
+
+// resultOfParsing returns the tree obtained by parsing re, if it is valid, or the error
+// otherwise.
+func resultOfParsing(re string) interface{} {
+	tree, err := Parse(re)
+	if err != nil {
+		return err
+	}
+	return tree
 }
 
 func TestParser(t *testing.T) {
 	for _, re := range testCases {
-		result, err := Parse(re.Regex)
-		if err != nil {
-			t.Errorf("%s: got %v, want %#v", re.Name, err, re.Want)
-		}
-		if !reflect.DeepEqual(result, re.Want) {
+		if result := resultOfParsing(re.Regex); !reflect.DeepEqual(result, re.Want) {
 			t.Errorf("%s: got %#v, want %#v", re.Name, result, re.Want)
 		}
 	}

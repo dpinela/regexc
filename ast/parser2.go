@@ -1,7 +1,5 @@
 package ast
 
-import "fmt"
-
 type Node interface {
 	simplify() Node
 }
@@ -43,22 +41,27 @@ type parser struct {
 	stack []Node
 }
 
-type ParseError struct {
+type parseError struct {
 	Message  string
 	Location int
 	Source   string
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+type BadCloseError parseError
 
-func (err *ParseError) Error() string {
-	return fmt.Sprintf("%s at character %d: %q...", err.Message, err.Location, err.Source[err.Location:min(err.Location+10, len(err.Source))])
-}
+func (err *BadCloseError) Error() string { return "closing parenthesis outside of group" }
+
+type UnterminatedGroupError parseError
+
+func (err *UnterminatedGroupError) Error() string { return "unterminated group" }
+
+type VoidRepetitionError parseError
+
+func (err *VoidRepetitionError) Error() string { return "repetition of nothing" }
+
+type RepetitionRepetitionError parseError
+
+func (err *RepetitionRepetitionError) Error() string { return "repetition of repetition" }
 
 func (p *parser) parseRegexp(re string) (Node, error) {
 	//fmt.Println("Parsing", re)
@@ -80,18 +83,18 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 		case ')':
 			p.extendAlternation(true)
 			if !p.finishGroup() {
-				return nil, &ParseError{Message: "closing parenthesis outside of group", Location: i, Source: re}
+				return nil, &BadCloseError{Location: i, Source: re}
 			}
 			groupLevel--
 		case '|':
 			p.startOrExtendAlternation()
 		case '*':
-			if !p.addRepetition(0, -1) {
-				return nil, &ParseError{Message: "illegal * repetition", Location: i, Source: re}
+			if err := p.addRepetition(0, -1, i, re); err != nil {
+				return nil, err
 			}
 		case '+':
-			if !p.addRepetition(1, -1) {
-				return nil, &ParseError{Message: "illegal + repetition", Location: i, Source: re}
+			if err := p.addRepetition(1, -1, i, re); err != nil {
+				return nil, err
 			}
 		default:
 			p.stack = append(p.stack, Literal(c))
@@ -101,7 +104,7 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	p.extendAlternation(true)
 	//fmt.Printf("finish, stack: %#v\n", p.stack)
 	if groupLevel > 0 {
-		return nil, &ParseError{Message: "unterminated group", Location: len(re), Source: re}
+		return nil, &UnterminatedGroupError{Location: len(re), Source: re}
 	}
 	return p.pop(), nil
 }
@@ -157,20 +160,20 @@ func (p *parser) extendAlternation(finish bool) {
 	}
 }
 
-func (p *parser) addRepetition(lowerLimit, upperLimit int) bool {
+func (p *parser) addRepetition(lowerLimit, upperLimit, pos int, re string) error {
 	if len(p.stack) == 0 {
-		return false
+		return &VoidRepetitionError{Location: pos, Source: re}
 	}
 	switch target := p.pop().(type) {
 	case Sequence: // can happen when the repeat operator appears at the start of a sequence
-		return false
+		return &VoidRepetitionError{Location: pos, Source: re}
 	case Alternation:
 		panic("BUG: addRepetition called with an Alternation at top of stack")
 	case Repetition:
-		return false
+		return &RepetitionRepetitionError{Location: pos, Source: re}
 	default:
 		p.push(Repetition{Content: target, LowerLimit: lowerLimit, UpperLimit: upperLimit})
-		return true
+		return nil
 	}
 }
 
