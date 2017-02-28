@@ -1,6 +1,12 @@
+//+build ignore
+
 package ast
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
 
 type Node interface{}
 
@@ -29,7 +35,7 @@ type CharRange struct {
 }
 
 // Regexp := Sequence | Alternation
-// Sequence := RegexpElement+
+// Sequence := RegexpElement*
 // RegexpElement := Literal | CharClass | Repetition | Group
 // Alternation := Sequence ('|' Sequence)+
 // Literal := LiteralChar+
@@ -41,6 +47,7 @@ type CharRange struct {
 // LiteralChar := EscAny | [^?*.\[\]()|]
 // EscAny := '\\' Any
 func Parse(re string) Node {
+	fmt.Println("Parsing", re)
 	defer func() {
 		if e := recover(); e != nil {
 			if _, ok := e.(abortParse); !ok {
@@ -65,10 +72,15 @@ type parser struct {
 
 type abortParse struct{}
 
+func (p *parser) trace(s string) {
+	fmt.Println(strings.Repeat(" ", len(p.stack))+s, "@", p.pos)
+}
+
 func (p *parser) Backtrack() {
 	if len(p.stack) == 0 {
 		panic(abortParse{})
 	}
+	p.trace("Backtrack")
 	p.pop()()
 }
 
@@ -129,12 +141,13 @@ func (p *parser) matchByte(b byte, then func()) {
 func nop(then func()) { then() }
 
 func (p *parser) parseRegexp(then func()) {
+	p.trace("parseRegexp")
 	p.Choose([]func(func()){p.parseAlternation, p.parseSequence}, then)
 }
 
 func (p *parser) parseSequence(then func()) {
-	//fmt.Println("parseRegexp @ ", p.pos)
-	p.parseOneOrMoreWithElements(p.parseRegexpElement, nil,
+	p.trace("parseSequence")
+	p.parseOneOrMore(p.parseRegexpElement, nil,
 		func(elements []Node) Node {
 			if len(elements) == 1 {
 				return elements[0]
@@ -143,11 +156,11 @@ func (p *parser) parseSequence(then func()) {
 		}, then)
 }
 
-func (p *parser) parseOneOrMoreWithElements(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
+func (p *parser) parseOneOrMore(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
 	parseFunc(func() {
 		p.Choose([]func(func()){
 			func(then func()) {
-				p.parseOneOrMoreWithElements(parseFunc, append(elements, p.popResult()), typeConverter, then)
+				p.parseOneOrMore(parseFunc, append(elements, p.popResult()), typeConverter, then)
 			}, func(then func()) {
 				p.resultStack = append(p.resultStack, typeConverter(append(elements, p.popResult())))
 				then()
@@ -156,15 +169,24 @@ func (p *parser) parseOneOrMoreWithElements(parseFunc func(func()), elements []N
 	})
 }
 
+func (p *parser) parseZeroOrMore(parseFunc func(func()), elements []Node, typeConverter func([]Node) Node, then func()) {
+	p.Choose([]func(func()){
+		func(then func()) { p.parseOneOrMore(parseFunc, elements, typeConverter, then) },
+		func(then func()) {
+			p.resultStack = append(p.resultStack, typeConverter(nil))
+		},
+	}, then)
+}
+
 func (p *parser) parseRegexpElement(then func()) {
-	//fmt.Println("parseRegexpElement @", p.pos)
+	p.trace("parseRegexpElement")
 	p.Choose([]func(func()){p.parseLiteral, p.parseGroup}, then)
 }
 
 var literalRE = regexp.MustCompile(`^(\.|[^?*.\[\]()|])+`)
 
 func (p *parser) parseLiteral(then func()) {
-	//fmt.Println("parseLiteral @", p.pos)
+	p.trace("parseLiteral")
 	p.matchPattern(literalRE, func(match []string) {
 		p.resultStack = append(p.resultStack, Literal(match[0]))
 		then()
@@ -172,7 +194,7 @@ func (p *parser) parseLiteral(then func()) {
 }
 
 func (p *parser) parseGroup(then func()) {
-	//fmt.Println("parseGroup @", p.pos)
+	p.trace("parseGroup")
 	p.matchByte('(', func() {
 		p.parseRegexp(func() {
 			p.matchByte(')', func() {
@@ -188,8 +210,9 @@ func (p *parser) parseCharClass(func())  {}
 func (p *parser) parseRepetition(func()) {}
 
 func (p *parser) parseAlternation(then func()) {
+	fmt.Println("parseAlternation @", p.pos)
 	p.parseSequence(func() {
-		p.parseOneOrMoreWithElements(func(then func()) {
+		p.parseOneOrMore(func(then func()) {
 			p.matchByte('|', func() { p.parseSequence(then) })
 		}, []Node{p.popResult()}, func(ns []Node) Node { return Alternation(ns) }, then)
 	})

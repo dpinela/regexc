@@ -20,7 +20,7 @@ var testCases = []testCase{
 	{
 		Name:  "Empty literal",
 		Regex: "",
-		Want:  Literal(""),
+		Want:  Sequence{},
 	},
 	{
 		Name:  "Alternation",
