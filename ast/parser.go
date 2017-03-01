@@ -1,5 +1,7 @@
 package ast
 
+import "strconv"
+
 type Node interface {
 	simplify() Node
 }
@@ -42,7 +44,6 @@ type parser struct {
 }
 
 type parseError struct {
-	Message  string
 	Location int
 	Source   string
 }
@@ -63,12 +64,61 @@ type RepetitionRepetitionError parseError
 
 func (err *RepetitionRepetitionError) Error() string { return "repetition of repetition" }
 
+type RepetitionBadCharError struct {
+	parseError
+	Char rune
+}
+
+func (err *RepetitionBadCharError) Error() string {
+	return "extraneous " + strconv.QuoteRune(err.Char) + " in counted repetition"
+}
+
+type EmptyCountedRepetitionError parseError
+
+func (err *EmptyCountedRepetitionError) Error() string { return "counted repetition without two" }
+
+type parsingMode int
+
+const (
+	modeNormal parsingMode = iota
+	modeCountedRepetition
+	modeCharClass
+)
+
 func (p *parser) parseRegexp(re string) (Node, error) {
 	//fmt.Println("Parsing", re)
 	groupLevel := 0
+	mode := modeNormal
+	var rep Repetition
+	var readingNum *int
 	for i, c := range re {
+		switch mode {
+		case modeCountedRepetition:
+			switch {
+			case c >= '0' && c <= '9':
+				if *readingNum == -1 {
+					*readingNum = 0
+				}
+				*readingNum = *readingNum*10 + int(c-'0')
+			case c == ',':
+				if readingNum == &rep.UpperLimit {
+					return nil, &RepetitionBadCharError{parseError: parseError{Location: i, Source: re}, Char: c}
+				}
+				readingNum = &rep.UpperLimit
+			case c == '}':
+				if readingNum == &rep.LowerLimit {
+					return nil, &EmptyCountedRepetitionError{Location: i, Source: re}
+				}
+				p.pop()
+				p.push(rep)
+				mode = modeNormal
+			default:
+				return nil, &RepetitionBadCharError{parseError: parseError{Location: i, Source: re}, Char: c}
+			}
+			continue
+		}
 		switch c {
-		case '*', '+':
+		case '*', '+', '{':
 		default:
 			p.extendSequence()
 		}
@@ -96,6 +146,13 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			if err := p.addRepetition(1, -1, i, re); err != nil {
 				return nil, err
 			}
+		case '{':
+			if err := p.addRepetition(0, -1, i, re); err != nil {
+				return nil, err
+			}
+			mode = modeCountedRepetition
+			rep = p.stack[len(p.stack)-1].(Repetition)
+			readingNum = &rep.LowerLimit
 		default:
 			p.stack = append(p.stack, Literal(c))
 		}
@@ -123,8 +180,6 @@ func (p *parser) extendSequence() {
 	}
 }
 
-// on seeing |
-// pop
 func (p *parser) startOrExtendAlternation() {
 	switch len(p.stack) {
 	case 0:

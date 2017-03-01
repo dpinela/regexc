@@ -111,6 +111,21 @@ var testCases = []testCase{
 		Regex: "bo++m",
 		Want:  &RepetitionRepetitionError{Location: 3, Source: "bo++m"},
 	},
+	{
+		Name:  "Invalid counted repetition (2 commas)",
+		Regex: "(x){2,3,2}",
+		Want:  &RepetitionBadCharError{parseError: parseError{Location: 7, Source: "(x){2,3,2}"}, Char: ','},
+	},
+	{
+		Name:  "Invalid counted repetition (invalid char)",
+		Regex: "($){$,$}",
+		Want:  &RepetitionBadCharError{parseError: parseError{Location: 4, Source: "($){$,$}"}, Char: '$'},
+	},
+	{
+		Name:  "Empty counted repetition",
+		Regex: "void{}",
+		Want:  &EmptyCountedRepetitionError{Location: 5, Source: "void{}"},
+	},
 }
 
 // resultOfParsing returns the tree obtained by parsing re, if it is valid, or the error
