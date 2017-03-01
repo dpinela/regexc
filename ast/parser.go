@@ -70,7 +70,7 @@ type RepetitionBadCharError struct {
 }
 
 func (err *RepetitionBadCharError) Error() string {
-	return "extraneous " + strconv.QuoteRune(err.Char) + " in counted repetition"
+	return "unexpected " + strconv.QuoteRune(err.Char) + " in counted repetition"
 }
 
 type UnterminatedRepetitionError parseError
