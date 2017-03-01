@@ -107,7 +107,7 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 				readingNum = &rep.UpperLimit
 			case c == '}':
 				if readingNum == &rep.LowerLimit {
-					return nil, &EmptyCountedRepetitionError{Location: i, Source: re}
+					rep.UpperLimit = rep.LowerLimit
 				}
 				p.pop()
 				p.push(rep)

@@ -82,6 +82,11 @@ var testCases = []testCase{
 		Want:  Repetition{Content: Literal("A"), LowerLimit: 3, UpperLimit: 33},
 	},
 	{
+		Name:  "Repetition (counted, fixed)",
+		Regex: "($){12}",
+		Want:  Repetition{Content: Group{Literal("$")}, LowerLimit: 12, UpperLimit: 12},
+	},
+	{
 		Name:  "Empty group",
 		Regex: "(())",
 		Want:  Group{Group{Sequence{}}},
@@ -103,8 +108,8 @@ var testCases = []testCase{
 	},
 	{
 		Name:  "Repetition of nothing 2",
-		Regex: "(+)",
-		Want:  &VoidRepetitionError{Location: 1, Source: "(+)"},
+		Regex: "({2,5})",
+		Want:  &VoidRepetitionError{Location: 1, Source: "({2,5})"},
 	},
 	{
 		Name:  "Repetition of repetition",
@@ -120,11 +125,6 @@ var testCases = []testCase{
 		Name:  "Invalid counted repetition (invalid char)",
 		Regex: "($){$,$}",
 		Want:  &RepetitionBadCharError{parseError: parseError{Location: 4, Source: "($){$,$}"}, Char: '$'},
-	},
-	{
-		Name:  "Empty counted repetition",
-		Regex: "void{}",
-		Want:  &EmptyCountedRepetitionError{Location: 5, Source: "void{}"},
 	},
 }
 
