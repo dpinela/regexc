@@ -126,6 +126,16 @@ var testCases = []testCase{
 		Regex: "($){$,$}",
 		Want:  &RepetitionBadCharError{parseError: parseError{Location: 4, Source: "($){$,$}"}, Char: '$'},
 	},
+	{
+		Name:  "Closing non-existent counted repetition",
+		Regex: "}{",
+		Want:  &BadRepetitionCloseError{Location: 0, Source: "}{"},
+	},
+	{
+		Name:  "Unterminated counted repetition",
+		Regex: "(forever){4,",
+		Want:  &UnterminatedRepetitionError{Location: 12, Source: "(forever){4,"},
+	},
 }
 
 // resultOfParsing returns the tree obtained by parsing re, if it is valid, or the error

@@ -73,9 +73,23 @@ func (err *RepetitionBadCharError) Error() string {
 	return "extraneous " + strconv.QuoteRune(err.Char) + " in counted repetition"
 }
 
-type EmptyCountedRepetitionError parseError
+type UnterminatedRepetitionError parseError
 
-func (err *EmptyCountedRepetitionError) Error() string { return "counted repetition without two" }
+func (err *UnterminatedRepetitionError) Error() string { return "unterminated counted repetition" }
+
+type UnterminatedCharClassError parseError
+
+func (err *UnterminatedCharClassError) Error() string { return "unterminated character class" }
+
+type BadRepetitionCloseError parseError
+
+func (err *BadRepetitionCloseError) Error() string {
+	return "closing brace outside of counted repetition"
+}
+
+type BadCharClassCloseError parseError
+
+func (err *BadCharClassCloseError) Error() string { return "closing bracket outside of character class" }
 
 type parsingMode int
 
@@ -153,6 +167,8 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			mode = modeCountedRepetition
 			rep = p.stack[len(p.stack)-1].(Repetition)
 			readingNum = &rep.LowerLimit
+		case '}':
+			return nil, &BadRepetitionCloseError{Location: i, Source: re}
 		default:
 			p.stack = append(p.stack, Literal(c))
 		}
@@ -162,6 +178,12 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	//fmt.Printf("finish, stack: %#v\n", p.stack)
 	if groupLevel > 0 {
 		return nil, &UnterminatedGroupError{Location: len(re), Source: re}
+	}
+	switch mode {
+	case modeCountedRepetition:
+		return nil, &UnterminatedRepetitionError{Location: len(re), Source: re}
+	case modeCharClass:
+		return nil, &UnterminatedCharClassError{Location: len(re), Source: re}
 	}
 	return p.pop(), nil
 }
