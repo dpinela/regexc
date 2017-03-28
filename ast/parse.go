@@ -24,6 +24,16 @@ type CharClass struct {
 	Ranges  []CharRange
 }
 
+func (cc *CharClass) appendRange(min, max rune) {
+	cc.Ranges = append(cc.Ranges, CharRange{Min: min, Max: max})
+}
+
+func (cc *CharClass) finishRange(max rune) {
+	r := &cc.Ranges[len(cc.Ranges)-1]
+	// This range should always be a single character (that is have Min == Max)
+	*r = CharRange{Min: r.Min, Max: max}
+}
+
 type CharRange struct {
 	Min, Max rune
 }
@@ -47,6 +57,7 @@ const (
 	modeNormal parsingMode = iota
 	modeCountedRepetition
 	modeCharClass
+	modeCharClassRange
 )
 
 func (p *parser) parseRegexp(re string) (Node, error) {
@@ -55,6 +66,8 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	mode := modeNormal
 	var rep Repetition
 	var readingNum *int
+	var class CharClass
+	backslashed := false
 	for i, c := range re {
 		switch mode {
 		case modeCountedRepetition:
@@ -78,6 +91,53 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 				mode = modeNormal
 			default:
 				return nil, &RepetitionBadCharError{parseError: parseError{Location: i, Source: re}, Char: c}
+			}
+			continue
+		case modeCharClass:
+			if backslashed {
+				class.appendRange(c, c)
+				backslashed = false
+				continue
+			}
+			switch c {
+			case '^':
+				if len(class.Ranges) == 0 && !class.Negated {
+					class.Negated = true
+				} else {
+					class.appendRange('^', '^')
+				}
+			case '-':
+				if len(class.Ranges) == 0 {
+					class.appendRange('-', '-')
+				} else {
+					mode = modeCharClassRange
+				}
+			case ']':
+				p.push(class)
+				mode = modeNormal
+			case '\\':
+				backslashed = true
+			default:
+				class.appendRange(c, c)
+			}
+			continue
+		case modeCharClassRange:
+			if backslashed {
+				class.finishRange(c)
+				backslashed = false
+				mode = modeCharClass
+				continue
+			}
+			switch c {
+			case ']':
+				class.appendRange('-', '-')
+				p.push(class)
+				mode = modeNormal
+			case '\\':
+				backslashed = true
+			default:
+				class.finishRange(c)
+				mode = modeCharClass
 			}
 			continue
 		}
@@ -119,6 +179,11 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			readingNum = &rep.LowerLimit
 		case '}':
 			return nil, &BadRepetitionCloseError{Location: i, Source: re}
+		case '[':
+			class = CharClass{}
+			mode = modeCharClass
+		case ']':
+			return nil, &BadCharClassCloseError{Location: i, Source: re}
 		default:
 			p.stack = append(p.stack, Literal(c))
 		}

@@ -10,6 +10,7 @@ func (s Sequence) simplify() Node {
 	}
 	return Sequence(simplifySubtree([]Node(joinedS)))
 }
+func (c CharClass) simplify() Node { return c }
 
 func (r Repetition) simplify() Node {
 	return Repetition{Content: r.Content.simplify(), LowerLimit: r.LowerLimit, UpperLimit: r.UpperLimit}

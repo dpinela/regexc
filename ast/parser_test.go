@@ -92,6 +92,44 @@ var testCases = []testCase{
 		Want:  Group{Group{Sequence{}}},
 	},
 	{
+		Name:  "Simple character class",
+		Regex: "su[nm]",
+		Want:  Sequence{Literal("su"), CharClass{Ranges: []CharRange{{Min: 'n', Max: 'n'}, {Min: 'm', Max: 'm'}}}},
+	},
+	{
+		Name:  "Negated simple character class",
+		Regex: "[^rplf]ace",
+		Want:  Sequence{CharClass{Negated: true, Ranges: []CharRange{{Min: 'r', Max: 'r'}, {Min: 'p', Max: 'p'}, {Min: 'l', Max: 'l'}, {Min: 'f', Max: 'f'}}}, Literal("ace")},
+	},
+	{
+		Name:  "Range character class",
+		Regex: "[0-9]{9}",
+		Want:  Repetition{Content: CharClass{Ranges: []CharRange{{Min: '0', Max: '9'}}}, LowerLimit: 9, UpperLimit: 9},
+	},
+	{
+		Name:  "Complex character class",
+		Regex: `[^xa-f\d]`,
+		Want:  CharClass{Negated: true, Ranges: []CharRange{{Min: 'x', Max: 'x'}, {Min: 'a', Max: 'f'}, {Min: '0', Max: '9'}}},
+	},
+	{
+		Name:  "Perl character classes",
+		Regex: `\d\w\s`,
+		Want: Sequence{
+			CharClass{Ranges: []CharRange{{Min: '0', Max: '9'}}},
+			CharClass{Ranges: []CharRange{{Min: 'a', Max: 'z'}, {Min: 'A', Max: 'Z'}, {Min: '0', Max: '9'}, {Min: '_', Max: '_'}}},
+			CharClass{Ranges: []CharRange{{Min: 9, Max: 10}, {Min: 12, Max: 13}, {Min: ' ', Max: ' '}}},
+		},
+	},
+	{
+		Name:  "Negated Perl character classes",
+		Regex: `\D\W\S`,
+		Want: Sequence{
+			CharClass{Negated: true, Ranges: []CharRange{{Min: '0', Max: '9'}}},
+			CharClass{Negated: true, Ranges: []CharRange{{Min: 'a', Max: 'z'}, {Min: 'A', Max: 'Z'}, {Min: '0', Max: '9'}, {Min: '_', Max: '_'}}},
+			CharClass{Negated: true, Ranges: []CharRange{{Min: 9, Max: 10}, {Min: 12, Max: 13}, {Min: ' ', Max: ' '}}},
+		},
+	},
+	{
 		Name:  "Unterminated group",
 		Regex: "(endless",
 		Want:  &UnterminatedGroupError{Location: 8, Source: "(endless"},
@@ -135,6 +173,16 @@ var testCases = []testCase{
 		Name:  "Unterminated counted repetition",
 		Regex: "(forever){4,",
 		Want:  &UnterminatedRepetitionError{Location: 12, Source: "(forever){4,"},
+	},
+	{
+		Name:  "Unterminated character class",
+		Regex: "[",
+		Want:  &UnterminatedCharClassError{Location: 1, Source: "["},
+	},
+	{
+		Name:  "Closing non-existent character class",
+		Regex: "]",
+		Want:  &BadCharClassCloseError{Location: 0, Source: "]"},
 	},
 }
 
