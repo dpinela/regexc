@@ -130,6 +130,16 @@ var testCases = []testCase{
 		},
 	},
 	{
+		Name:  "Backslash escapes",
+		Regex: `\(\[\{\\\}\]\)\*\+\|`,
+		Want:  Literal(`([{\}])*+|`),
+	},
+	{
+		Name:  "Redudant backslash escapes",
+		Regex: `\j\k`,
+		Want:  Literal("jk"),
+	},
+	{
 		Name:  "Unterminated group",
 		Regex: "(endless",
 		Want:  &UnterminatedGroupError{Location: 8, Source: "(endless"},
@@ -183,6 +193,11 @@ var testCases = []testCase{
 		Name:  "Closing non-existent character class",
 		Regex: "]",
 		Want:  &BadCharClassCloseError{Location: 0, Source: "]"},
+	},
+	{
+		Name:  "Escape of nothing",
+		Regex: `a\`,
+		Want:  &BadBackslashError{Location: 2, Source: `a\`},
 	},
 }
 

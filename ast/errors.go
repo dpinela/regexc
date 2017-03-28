@@ -49,3 +49,7 @@ func (err *BadRepetitionCloseError) Error() string {
 type BadCharClassCloseError parseError
 
 func (err *BadCharClassCloseError) Error() string { return "closing bracket outside of character class" }
+
+type BadBackslashError parseError
+
+func (err *BadBackslashError) Error() string { return "backslash at end of expression" }

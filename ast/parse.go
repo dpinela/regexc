@@ -147,6 +147,11 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			p.extendSequence()
 		}
 		//fmt.Printf("char: %c stack: %#v\n", c, p.stack)
+		if backslashed {
+			p.stack = append(p.stack, Literal(c))
+			backslashed = false
+			continue
+		}
 		switch c {
 		case '(':
 			// Add a group token to the stack so that combining operations don't mix
@@ -184,6 +189,8 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 			mode = modeCharClass
 		case ']':
 			return nil, &BadCharClassCloseError{Location: i, Source: re}
+		case '\\':
+			backslashed = true
 		default:
 			p.stack = append(p.stack, Literal(c))
 		}
@@ -191,13 +198,16 @@ func (p *parser) parseRegexp(re string) (Node, error) {
 	p.extendSequence()
 	p.extendAlternation(true)
 	//fmt.Printf("finish, stack: %#v\n", p.stack)
+	if backslashed {
+		return nil, &BadBackslashError{Location: len(re), Source: re}
+	}
 	if groupLevel > 0 {
 		return nil, &UnterminatedGroupError{Location: len(re), Source: re}
 	}
 	switch mode {
 	case modeCountedRepetition:
 		return nil, &UnterminatedRepetitionError{Location: len(re), Source: re}
-	case modeCharClass:
+	case modeCharClass, modeCharClassRange:
 		return nil, &UnterminatedCharClassError{Location: len(re), Source: re}
 	}
 	return p.pop(), nil
